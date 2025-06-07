@@ -34,6 +34,22 @@ def test_add_list_done(tmp_path):
     assert len(all_tasks) == 1
 
 
+def test_update_and_sort(tmp_path):
+    db_path = tmp_path / "tasks.db"
+    tracker = TaskTracker(str(db_path))
+
+    tracker.add_task("first", priority=1, due_date="2024-05-10")
+    tracker.add_task("second", priority=5, due_date="2024-05-01")
+
+    tracker.update_task(1, description="first updated", priority=3, due_date="2024-05-20")
+
+    tasks_due = tracker.list_tasks(sort_by="due", ascending=True)
+    assert tasks_due[0][1] == "second"
+
+    tasks_due_desc = tracker.list_tasks(sort_by="due", ascending=False)
+    assert tasks_due_desc[0][1] == "first updated"
+
+
 def test_web_app(tmp_path):
     db_path = tmp_path / "tasks.db"
     tracker = TaskTracker(str(db_path))
@@ -53,4 +69,16 @@ def test_web_app(tmp_path):
         client.post(f'/done/{task_id}')
         client.post(f'/delete/{task_id}')
         assert tracker.list_tasks() == []
+
+        # add two tasks with due dates for sorting
+        client.post('/add', data={'description': 't1', 'priority': '1', 'due_date': '2024-01-10'})
+        client.post('/add', data={'description': 't2', 'priority': '1', 'due_date': '2024-01-05'})
+        resp = client.get('/?sort=due')
+        body = resp.data.decode()
+        assert body.index('t2') < body.index('t1')
+
+        # edit first task via web
+        tid = tracker.list_tasks(sort_by="due", ascending=True)[0][0]
+        client.post(f'/edit/{tid}', data={'description': 't2 edited', 'priority': '2', 'due_date': '2024-01-06'})
+        assert 't2 edited' in client.get('/').data.decode()
 
