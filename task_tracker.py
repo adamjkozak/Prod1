@@ -23,7 +23,9 @@ class TaskTracker:
                 priority INTEGER NOT NULL DEFAULT 1,
                 due_date TEXT,
                 done INTEGER NOT NULL DEFAULT 0,
-                status TEXT NOT NULL DEFAULT 'not started'
+                status TEXT NOT NULL DEFAULT 'not started',
+                comment TEXT,
+                color TEXT
             )
             """
         )
@@ -37,6 +39,10 @@ class TaskTracker:
             self.conn.execute("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'not started'")
             # migrate existing done flag into status
             self.conn.execute("UPDATE tasks SET status='done' WHERE done=1")
+        if "comment" not in columns:
+            self.conn.execute("ALTER TABLE tasks ADD COLUMN comment TEXT")
+        if "color" not in columns:
+            self.conn.execute("ALTER TABLE tasks ADD COLUMN color TEXT")
         self.conn.commit()
 
     def add_task(
@@ -45,12 +51,14 @@ class TaskTracker:
         priority: int = 1,
         due_date: Optional[str] = None,
         status: str = "not started",
+        comment: str = "",
+        color: str = "",
     ) -> None:
         """Add a new task."""
         done = 1 if status == "done" else 0
         self.conn.execute(
-            "INSERT INTO tasks(description, priority, due_date, done, status) VALUES (?, ?, ?, ?, ?)",
-            (description, priority, due_date, done, status),
+            "INSERT INTO tasks(description, priority, due_date, done, status, comment, color) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (description, priority, due_date, done, status, comment, color),
         )
         self.conn.commit()
 
@@ -64,6 +72,7 @@ class TaskTracker:
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         with_status: bool = False,
+        with_meta: bool = False,
     ) -> List[Tuple[int, str, int, Optional[str], int]]:
         """Return tasks with optional filtering and pagination."""
         order = "ASC" if ascending else "DESC"
@@ -77,6 +86,8 @@ class TaskTracker:
         cols = "id, description, priority, due_date, done"
         if with_status:
             cols += ", status"
+        if with_meta:
+            cols += ", comment, color"
         base_query = f"SELECT {cols} FROM tasks"
         clauses = []
         params: List[object] = []
@@ -149,6 +160,8 @@ class TaskTracker:
         priority: Optional[int] = None,
         due_date: Optional[str] = None,
         status: Optional[str] = None,
+        comment: Optional[str] = None,
+        color: Optional[str] = None,
     ) -> None:
         """Update an existing task's fields."""
         fields = []
@@ -167,6 +180,12 @@ class TaskTracker:
             params.append(status)
             fields.append("done=?")
             params.append(1 if status == "done" else 0)
+        if comment is not None:
+            fields.append("comment=?")
+            params.append(comment)
+        if color is not None:
+            fields.append("color=?")
+            params.append(color)
         if not fields:
             return
         params.append(task_id)
