@@ -56,6 +56,11 @@ class TaskTracker:
         self.conn.execute("UPDATE tasks SET done=1 WHERE id=?", (task_id,))
         self.conn.commit()
 
+    def delete_task(self, task_id: int) -> None:
+        """Delete a task permanently."""
+        self.conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        self.conn.commit()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simple task tracker")
@@ -78,6 +83,9 @@ def main() -> None:
     done_parser = subparsers.add_parser("done", help="Mark task as done")
     done_parser.add_argument("task_id", type=int, help="ID of the task to mark as done")
 
+    delete_parser = subparsers.add_parser("delete", help="Delete a task")
+    delete_parser.add_argument("task_id", type=int, help="ID of the task to delete")
+
     args = parser.parse_args()
     tracker = TaskTracker()
 
@@ -91,6 +99,8 @@ def main() -> None:
             print(f"[{tid}] (p={priority}) {desc}{due_info} - {status}")
     elif args.command == "done":
         tracker.mark_done(args.task_id)
+    elif args.command == "delete":
+        tracker.delete_task(args.task_id)
 
 
 if __name__ == "__main__":
