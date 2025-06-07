@@ -27,8 +27,11 @@ def test_add_list_done(tmp_path):
     assert len(remaining) == 1
     assert remaining[0][1] == "task two"
 
+    tracker.delete_task(remaining[0][0])
+    assert tracker.list_tasks() == []
+
     all_tasks = tracker.list_tasks(show_all=True)
-    assert len(all_tasks) == 2
+    assert len(all_tasks) == 1
 
 
 def test_web_app(tmp_path):
@@ -44,4 +47,10 @@ def test_web_app(tmp_path):
         client.post('/add', data={'description': 'web task', 'priority': '3'})
         resp = client.get('/')
         assert b'web task' in resp.data
+
+        # mark done and delete via HTTP
+        task_id = tracker.list_tasks()[0][0]
+        client.post(f'/done/{task_id}')
+        client.post(f'/delete/{task_id}')
+        assert tracker.list_tasks() == []
 

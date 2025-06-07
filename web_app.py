@@ -23,6 +23,9 @@ TEMPLATE = """
         <button type="submit">Done</button>
     </form>
     {% endif %}
+    <form method="post" action="/delete/{{tid}}" style="display:inline;">
+        <button type="submit">Delete</button>
+    </form>
 </li>
 {% endfor %}
 </ul>
@@ -46,5 +49,12 @@ def done(task_id: int):
     tracker.mark_done(task_id)
     return redirect(url_for("index"))
 
+@app.route("/delete/<int:task_id>", methods=["POST"])
+def delete(task_id: int):
+    tracker.delete_task(task_id)
+    return redirect(url_for("index"))
+
 if __name__ == "__main__":
-    app.run()
+    import os
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
