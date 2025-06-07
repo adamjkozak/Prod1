@@ -22,7 +22,8 @@ class TaskTracker:
                 description TEXT NOT NULL,
                 priority INTEGER NOT NULL DEFAULT 1,
                 due_date TEXT,
-                done INTEGER NOT NULL DEFAULT 0
+                done INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'not started'
             )
             """
         )
@@ -32,13 +33,24 @@ class TaskTracker:
         columns = [row[1] for row in self.conn.execute("PRAGMA table_info(tasks)")]
         if "due_date" not in columns:
             self.conn.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
+        if "status" not in columns:
+            self.conn.execute("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'not started'")
+            # migrate existing done flag into status
+            self.conn.execute("UPDATE tasks SET status='done' WHERE done=1")
         self.conn.commit()
 
-    def add_task(self, description: str, priority: int = 1, due_date: Optional[str] = None) -> None:
+    def add_task(
+        self,
+        description: str,
+        priority: int = 1,
+        due_date: Optional[str] = None,
+        status: str = "not started",
+    ) -> None:
         """Add a new task."""
+        done = 1 if status == "done" else 0
         self.conn.execute(
-            "INSERT INTO tasks(description, priority, due_date, done) VALUES (?, ?, ?, 0)",
-            (description, priority, due_date),
+            "INSERT INTO tasks(description, priority, due_date, done, status) VALUES (?, ?, ?, ?, ?)",
+            (description, priority, due_date, done, status),
         )
         self.conn.commit()
 
@@ -47,8 +59,13 @@ class TaskTracker:
         show_all: bool = False,
         ascending: bool = False,
         sort_by: str = "priority",
+        search: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        with_status: bool = False,
     ) -> List[Tuple[int, str, int, Optional[str], int]]:
-        """Return tasks sorted by priority or due date."""
+        """Return tasks with optional filtering and pagination."""
         order = "ASC" if ascending else "DESC"
         if sort_by == "due":
             null_high = "9999-12-31" if ascending else "0001-01-01"
@@ -57,14 +74,49 @@ class TaskTracker:
             # default to sorting by priority
             order_clause = f"priority {order}, COALESCE(due_date, '')"
 
-        base_query = "SELECT id, description, priority, due_date, done FROM tasks"
-        if show_all:
-            query = f"{base_query} ORDER BY done, {order_clause}"
-            cursor = self.conn.execute(query)
-        else:
-            query = f"{base_query} WHERE done=0 ORDER BY {order_clause}"
-            cursor = self.conn.execute(query)
+        cols = "id, description, priority, due_date, done"
+        if with_status:
+            cols += ", status"
+        base_query = f"SELECT {cols} FROM tasks"
+        clauses = []
+        params: List[object] = []
+        if not show_all:
+            clauses.append("done=0")
+        if search:
+            clauses.append("description LIKE ?")
+            params.append(f"%{search}%")
+        if status:
+            clauses.append("status=?")
+            params.append(status)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = f"{base_query}{where} ORDER BY {order_clause}"
+        if limit is not None:
+            query += f" LIMIT {limit}"
+        if offset is not None:
+            query += f" OFFSET {offset}"
+        cursor = self.conn.execute(query, params)
         return cursor.fetchall()
+
+    def count_tasks(
+        self,
+        show_all: bool = False,
+        search: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> int:
+        """Return number of tasks matching the given filters."""
+        base_query = "SELECT COUNT(*) FROM tasks"
+        clauses = []
+        params: List[object] = []
+        if not show_all:
+            clauses.append("done=0")
+        if search:
+            clauses.append("description LIKE ?")
+            params.append(f"%{search}%")
+        if status:
+            clauses.append("status=?")
+            params.append(status)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        return self.conn.execute(base_query + where, params).fetchone()[0]
 
     def seed_dummy_tasks(self) -> None:
         """Insert a few sample tasks if the table is empty."""
@@ -78,14 +130,11 @@ class TaskTracker:
             ("Exercise", 3, "2024-04-15"),
             ("Plan vacation", 4, "2024-06-01"),
         ]
-        self.conn.executemany(
-            "INSERT INTO tasks(description, priority, due_date, done) VALUES (?, ?, ?, 0)",
-            tasks,
-        )
-        self.conn.commit()
+        for desc, prio, due in tasks:
+            self.add_task(desc, prio, due)
 
     def mark_done(self, task_id: int) -> None:
-        self.conn.execute("UPDATE tasks SET done=1 WHERE id=?", (task_id,))
+        self.conn.execute("UPDATE tasks SET done=1, status='done' WHERE id=?", (task_id,))
         self.conn.commit()
 
     def delete_task(self, task_id: int) -> None:
@@ -99,6 +148,7 @@ class TaskTracker:
         description: Optional[str] = None,
         priority: Optional[int] = None,
         due_date: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> None:
         """Update an existing task's fields."""
         fields = []
@@ -112,6 +162,11 @@ class TaskTracker:
         if due_date is not None:
             fields.append("due_date=?")
             params.append(due_date)
+        if status is not None:
+            fields.append("status=?")
+            params.append(status)
+            fields.append("done=?")
+            params.append(1 if status == "done" else 0)
         if not fields:
             return
         params.append(task_id)
@@ -130,6 +185,12 @@ def main() -> None:
     )
     add_parser.add_argument(
         "-d", "--due-date", help="Optional due date as YYYY-MM-DD"
+    )
+    add_parser.add_argument(
+        "--status",
+        choices=["not started", "in progress", "done"],
+        default="not started",
+        help="Initial status for the task",
     )
 
     list_parser = subparsers.add_parser("list", help="List tasks")
@@ -161,12 +222,17 @@ def main() -> None:
     edit_parser.add_argument("-d", "--description", help="New description")
     edit_parser.add_argument("-p", "--priority", type=int, help="New priority")
     edit_parser.add_argument("--due-date", help="New due date")
+    edit_parser.add_argument(
+        "--status",
+        choices=["not started", "in progress", "done"],
+        help="Updated status",
+    )
 
     args = parser.parse_args()
     tracker = TaskTracker(populate_dummy=True)
 
     if args.command == "add":
-        tracker.add_task(args.description, args.priority, args.due_date)
+        tracker.add_task(args.description, args.priority, args.due_date, args.status)
     elif args.command == "list":
         tasks = tracker.list_tasks(args.all, ascending=args.asc, sort_by=args.sort_by)
         for tid, desc, priority, due, done in tasks:
@@ -185,6 +251,7 @@ def main() -> None:
             description=args.description,
             priority=args.priority,
             due_date=args.due_date,
+            status=args.status,
         )
 
 
