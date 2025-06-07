@@ -17,8 +17,9 @@ tr:nth-child(odd) { background-color: #ffffff; }
 <form method="get" action="/">
     <label for="sort">Sort:</label>
     <select name="sort" id="sort" onchange="this.form.submit()">
-        <option value="desc" {% if sort != 'asc' %}selected{% endif %}>Priority high->low</option>
-        <option value="asc" {% if sort == 'asc' %}selected{% endif %}>Priority low->high</option>
+        <option value="desc" {% if sort == 'desc' %}selected{% endif %}>Priority high-&gt;low</option>
+        <option value="asc" {% if sort == 'asc' %}selected{% endif %}>Priority low-&gt;high</option>
+        <option value="due" {% if sort == 'due' %}selected{% endif %}>Due date</option>
     </select>
 </form>
 <form method="post" action="/add">
@@ -55,6 +56,9 @@ tr:nth-child(odd) { background-color: #ffffff; }
                 <button type="submit">Done</button>
             </form>
             {% endif %}
+            <form method="get" action="/edit/{{tid}}" style="display:inline;">
+                <button type="submit">Edit</button>
+            </form>
             <form method="post" action="/delete/{{tid}}" style="display:inline;">
                 <button type="submit">Delete</button>
             </form>
@@ -68,7 +72,10 @@ tr:nth-child(odd) { background-color: #ffffff; }
 @app.route("/")
 def index():
     sort = request.args.get("sort", "desc")
-    tasks = tracker.list_tasks(show_all=True, ascending=(sort == "asc"))
+    if sort == "due":
+        tasks = tracker.list_tasks(show_all=True, sort_by="due", ascending=True)
+    else:
+        tasks = tracker.list_tasks(show_all=True, ascending=(sort == "asc"))
     return render_template_string(TEMPLATE, tasks=tasks, sort=sort)
 
 @app.route("/add", methods=["POST"])
@@ -88,6 +95,36 @@ def done(task_id: int):
 def delete(task_id: int):
     tracker.delete_task(task_id)
     return redirect(url_for("index"))
+
+@app.route("/edit/<int:task_id>", methods=["GET", "POST"])
+def edit(task_id: int):
+    if request.method == "POST":
+        description = request.form.get("description")
+        priority = request.form.get("priority")
+        due_date = request.form.get("due_date") or None
+        tracker.update_task(
+            task_id,
+            description=description,
+            priority=int(priority) if priority else None,
+            due_date=due_date,
+        )
+        return redirect(url_for("index"))
+    task = tracker.conn.execute(
+        "SELECT description, priority, due_date FROM tasks WHERE id=?",
+        (task_id,),
+    ).fetchone()
+    edit_template = """
+    <!doctype html>
+    <title>Edit Task</title>
+    <form method=\"post\">
+        <label>Description:<input type=text name=description value=\"{{t[0]}}\"></label>
+        <label>Priority:<input type=number name=priority value=\"{{t[1]}}\" min=1></label>
+        <label>Due date:<input type=date name=due_date value=\"{{t[2] if t[2] else ''}}\"></label>
+        <button type=submit>Save</button>
+    </form>
+    <a href=\"/\">Back</a>
+    """
+    return render_template_string(edit_template, t=task)
 
 if __name__ == "__main__":
     import os

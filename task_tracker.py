@@ -42,17 +42,28 @@ class TaskTracker:
         )
         self.conn.commit()
 
-    def list_tasks(self, show_all: bool = False, ascending: bool = False) -> List[Tuple[int, str, int, Optional[str], int]]:
-        """Return tasks sorted by priority and due date."""
+    def list_tasks(
+        self,
+        show_all: bool = False,
+        ascending: bool = False,
+        sort_by: str = "priority",
+    ) -> List[Tuple[int, str, int, Optional[str], int]]:
+        """Return tasks sorted by priority or due date."""
         order = "ASC" if ascending else "DESC"
-        if show_all:
-            cursor = self.conn.execute(
-                f"SELECT id, description, priority, due_date, done FROM tasks ORDER BY done, priority {order}, COALESCE(due_date, '')"
-            )
+        if sort_by == "due":
+            null_high = "9999-12-31" if ascending else "0001-01-01"
+            order_clause = f"COALESCE(due_date, '{null_high}') {order}, priority DESC"
         else:
-            cursor = self.conn.execute(
-                f"SELECT id, description, priority, due_date, done FROM tasks WHERE done=0 ORDER BY priority {order}, COALESCE(due_date, '')"
-            )
+            # default to sorting by priority
+            order_clause = f"priority {order}, COALESCE(due_date, '')"
+
+        base_query = "SELECT id, description, priority, due_date, done FROM tasks"
+        if show_all:
+            query = f"{base_query} ORDER BY done, {order_clause}"
+            cursor = self.conn.execute(query)
+        else:
+            query = f"{base_query} WHERE done=0 ORDER BY {order_clause}"
+            cursor = self.conn.execute(query)
         return cursor.fetchall()
 
     def seed_dummy_tasks(self) -> None:
@@ -82,6 +93,31 @@ class TaskTracker:
         self.conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         self.conn.commit()
 
+    def update_task(
+        self,
+        task_id: int,
+        description: Optional[str] = None,
+        priority: Optional[int] = None,
+        due_date: Optional[str] = None,
+    ) -> None:
+        """Update an existing task's fields."""
+        fields = []
+        params = []
+        if description is not None:
+            fields.append("description=?")
+            params.append(description)
+        if priority is not None:
+            fields.append("priority=?")
+            params.append(priority)
+        if due_date is not None:
+            fields.append("due_date=?")
+            params.append(due_date)
+        if not fields:
+            return
+        params.append(task_id)
+        self.conn.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id=?", params)
+        self.conn.commit()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simple task tracker")
@@ -103,7 +139,13 @@ def main() -> None:
     list_parser.add_argument(
         "--asc",
         action="store_true",
-        help="Sort tasks by priority ascending instead of descending",
+        help="Sort in ascending order instead of descending",
+    )
+    list_parser.add_argument(
+        "--sort-by",
+        choices=["priority", "due"],
+        default="priority",
+        help="Sort tasks by priority or due date",
     )
 
     seed_parser = subparsers.add_parser("seed", help="Insert sample tasks")
@@ -114,13 +156,19 @@ def main() -> None:
     delete_parser = subparsers.add_parser("delete", help="Delete a task")
     delete_parser.add_argument("task_id", type=int, help="ID of the task to delete")
 
+    edit_parser = subparsers.add_parser("edit", help="Edit an existing task")
+    edit_parser.add_argument("task_id", type=int, help="ID of the task to edit")
+    edit_parser.add_argument("-d", "--description", help="New description")
+    edit_parser.add_argument("-p", "--priority", type=int, help="New priority")
+    edit_parser.add_argument("--due-date", help="New due date")
+
     args = parser.parse_args()
     tracker = TaskTracker(populate_dummy=True)
 
     if args.command == "add":
         tracker.add_task(args.description, args.priority, args.due_date)
     elif args.command == "list":
-        tasks = tracker.list_tasks(args.all, ascending=args.asc)
+        tasks = tracker.list_tasks(args.all, ascending=args.asc, sort_by=args.sort_by)
         for tid, desc, priority, due, done in tasks:
             status = "done" if done else "pending"
             due_info = f" due {due}" if due else ""
@@ -131,6 +179,13 @@ def main() -> None:
         tracker.delete_task(args.task_id)
     elif args.command == "seed":
         tracker.seed_dummy_tasks()
+    elif args.command == "edit":
+        tracker.update_task(
+            args.task_id,
+            description=args.description,
+            priority=args.priority,
+            due_date=args.due_date,
+        )
 
 
 if __name__ == "__main__":
