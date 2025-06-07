@@ -2,12 +2,18 @@ from flask import Flask, request, redirect, url_for, render_template_string
 from task_tracker import TaskTracker
 
 app = Flask(__name__)
-tracker = TaskTracker()
+tracker = TaskTracker(populate_dummy=True)
 
 TEMPLATE = """
 <!doctype html>
 <title>Task Tracker</title>
 <h1>Tasks</h1>
+<form method="get" action="/">
+    <select name="sort" onchange="this.form.submit()">
+        <option value="desc" {% if sort != 'asc' %}selected{% endif %}>Priority high->low</option>
+        <option value="asc" {% if sort == 'asc' %}selected{% endif %}>Priority low->high</option>
+    </select>
+</form>
 <form method="post" action="/add">
     <input type="text" name="description" placeholder="Task description" required>
     <input type="number" name="priority" value="1" min="1">
@@ -33,8 +39,9 @@ TEMPLATE = """
 
 @app.route("/")
 def index():
-    tasks = tracker.list_tasks(show_all=True)
-    return render_template_string(TEMPLATE, tasks=tasks)
+    sort = request.args.get("sort", "desc")
+    tasks = tracker.list_tasks(show_all=True, ascending=(sort == "asc"))
+    return render_template_string(TEMPLATE, tasks=tasks, sort=sort)
 
 @app.route("/add", methods=["POST"])
 def add():

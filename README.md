@@ -7,8 +7,10 @@ This repository contains a simple task tracker backed by SQLite. Tasks can be ma
 ```
 python3 task_tracker.py add "Buy milk" -p 2 -d 2024-12-31
 python3 task_tracker.py list
+python3 task_tracker.py list --asc
 python3 task_tracker.py done 1
 python3 task_tracker.py delete 2
+python3 task_tracker.py seed  # add sample tasks
 ```
 
 To run the web app:
