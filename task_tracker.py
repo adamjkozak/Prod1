@@ -7,7 +7,8 @@ DB_FILE = "tasks.db"
 class TaskTracker:
     def __init__(self, db_path: str = DB_FILE):
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+        # Allow connection reuse across Flask's threaded request handlers
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self._init_db()
 
     def _init_db(self) -> None:
