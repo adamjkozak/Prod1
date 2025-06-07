@@ -73,7 +73,7 @@ def test_web_app(tmp_path):
         # add two tasks with due dates for sorting
         client.post('/add', data={'description': 't1', 'priority': '1', 'due_date': '2024-01-10'})
         client.post('/add', data={'description': 't2', 'priority': '1', 'due_date': '2024-01-05'})
-        resp = client.get('/?sort=due')
+        resp = client.get('/?sort=due_asc')
         body = resp.data.decode()
         assert body.index('t2') < body.index('t1')
 
