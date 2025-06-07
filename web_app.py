@@ -7,34 +7,62 @@ tracker = TaskTracker(populate_dummy=True)
 TEMPLATE = """
 <!doctype html>
 <title>Task Tracker</title>
+<style>
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+tr:nth-child(even) { background-color: #f9f9f9; }
+tr:nth-child(odd) { background-color: #ffffff; }
+</style>
 <h1>Tasks</h1>
 <form method="get" action="/">
-    <select name="sort" onchange="this.form.submit()">
+    <label for="sort">Sort:</label>
+    <select name="sort" id="sort" onchange="this.form.submit()">
         <option value="desc" {% if sort != 'asc' %}selected{% endif %}>Priority high->low</option>
         <option value="asc" {% if sort == 'asc' %}selected{% endif %}>Priority low->high</option>
     </select>
 </form>
 <form method="post" action="/add">
-    <input type="text" name="description" placeholder="Task description" required>
-    <input type="number" name="priority" value="1" min="1">
-    <input type="date" name="due_date">
+    <label for="description">Description:</label>
+    <input id="description" type="text" name="description" required>
+    <label for="priority">Priority:</label>
+    <input id="priority" type="number" name="priority" value="1" min="1">
+    <label for="due_date">Due date:</label>
+    <input id="due_date" type="date" name="due_date">
     <button type="submit">Add Task</button>
 </form>
-<ul>
+<table>
+<thead>
+    <tr>
+        <th>ID</th>
+        <th>Description</th>
+        <th>Priority</th>
+        <th>Due date</th>
+        <th>Status</th>
+        <th>Actions</th>
+    </tr>
+</thead>
+<tbody>
 {% for tid, desc, priority, due, done in tasks %}
-<li>
-    [{{tid}}] {{desc}} (p={{priority}}){% if due %} due {{due}}{% endif %} - {{'done' if done else 'pending'}}
-    {% if not done %}
-    <form method="post" action="/done/{{tid}}" style="display:inline;">
-        <button type="submit">Done</button>
-    </form>
-    {% endif %}
-    <form method="post" action="/delete/{{tid}}" style="display:inline;">
-        <button type="submit">Delete</button>
-    </form>
-</li>
+    <tr>
+        <td>{{tid}}</td>
+        <td>{{desc}}</td>
+        <td>{{priority}}</td>
+        <td>{{due if due else ''}}</td>
+        <td>{{'done' if done else 'pending'}}</td>
+        <td>
+            {% if not done %}
+            <form method="post" action="/done/{{tid}}" style="display:inline;">
+                <button type="submit">Done</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/delete/{{tid}}" style="display:inline;">
+                <button type="submit">Delete</button>
+            </form>
+        </td>
+    </tr>
 {% endfor %}
-</ul>
+</tbody>
+</table>
 """
 
 @app.route("/")
