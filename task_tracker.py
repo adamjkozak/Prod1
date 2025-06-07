@@ -5,11 +5,13 @@ from typing import List, Tuple, Optional
 DB_FILE = "tasks.db"
 
 class TaskTracker:
-    def __init__(self, db_path: str = DB_FILE):
+    def __init__(self, db_path: str = DB_FILE, populate_dummy: bool = False):
         self.db_path = db_path
         # Allow connection reuse across Flask's threaded request handlers
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self._init_db()
+        if populate_dummy:
+            self.seed_dummy_tasks()
 
     def _init_db(self) -> None:
         """Initialise the tasks table and upgrade old schemas."""
@@ -40,17 +42,36 @@ class TaskTracker:
         )
         self.conn.commit()
 
-    def list_tasks(self, show_all: bool = False) -> List[Tuple[int, str, int, Optional[str], int]]:
+    def list_tasks(self, show_all: bool = False, ascending: bool = False) -> List[Tuple[int, str, int, Optional[str], int]]:
         """Return tasks sorted by priority and due date."""
+        order = "ASC" if ascending else "DESC"
         if show_all:
             cursor = self.conn.execute(
-                "SELECT id, description, priority, due_date, done FROM tasks ORDER BY done, priority DESC, COALESCE(due_date, '')"
+                f"SELECT id, description, priority, due_date, done FROM tasks ORDER BY done, priority {order}, COALESCE(due_date, '')"
             )
         else:
             cursor = self.conn.execute(
-                "SELECT id, description, priority, due_date, done FROM tasks WHERE done=0 ORDER BY priority DESC, COALESCE(due_date, '')"
+                f"SELECT id, description, priority, due_date, done FROM tasks WHERE done=0 ORDER BY priority {order}, COALESCE(due_date, '')"
             )
         return cursor.fetchall()
+
+    def seed_dummy_tasks(self) -> None:
+        """Insert a few sample tasks if the table is empty."""
+        count = self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        if count:
+            return
+        tasks = [
+            ("Buy groceries", 2, "2024-05-01"),
+            ("Finish project report", 5, "2024-04-20"),
+            ("Call mom", 1, "2024-04-10"),
+            ("Exercise", 3, "2024-04-15"),
+            ("Plan vacation", 4, "2024-06-01"),
+        ]
+        self.conn.executemany(
+            "INSERT INTO tasks(description, priority, due_date, done) VALUES (?, ?, ?, 0)",
+            tasks,
+        )
+        self.conn.commit()
 
     def mark_done(self, task_id: int) -> None:
         self.conn.execute("UPDATE tasks SET done=1 WHERE id=?", (task_id,))
@@ -79,6 +100,13 @@ def main() -> None:
     list_parser.add_argument(
         "-a", "--all", action="store_true", help="Show completed tasks as well"
     )
+    list_parser.add_argument(
+        "--asc",
+        action="store_true",
+        help="Sort tasks by priority ascending instead of descending",
+    )
+
+    seed_parser = subparsers.add_parser("seed", help="Insert sample tasks")
 
     done_parser = subparsers.add_parser("done", help="Mark task as done")
     done_parser.add_argument("task_id", type=int, help="ID of the task to mark as done")
@@ -87,12 +115,12 @@ def main() -> None:
     delete_parser.add_argument("task_id", type=int, help="ID of the task to delete")
 
     args = parser.parse_args()
-    tracker = TaskTracker()
+    tracker = TaskTracker(populate_dummy=True)
 
     if args.command == "add":
         tracker.add_task(args.description, args.priority, args.due_date)
     elif args.command == "list":
-        tasks = tracker.list_tasks(args.all)
+        tasks = tracker.list_tasks(args.all, ascending=args.asc)
         for tid, desc, priority, due, done in tasks:
             status = "done" if done else "pending"
             due_info = f" due {due}" if due else ""
@@ -101,6 +129,8 @@ def main() -> None:
         tracker.mark_done(args.task_id)
     elif args.command == "delete":
         tracker.delete_task(args.task_id)
+    elif args.command == "seed":
+        tracker.seed_dummy_tasks()
 
 
 if __name__ == "__main__":
